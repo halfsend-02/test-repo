@@ -372,9 +372,12 @@ runs:
         elif [[ -f "${GITHUB_EVENT_PATH}" ]]; then
           EVENT_PAYLOAD_RAW=$(jq -r '.inputs.event_payload // empty' "${GITHUB_EVENT_PATH}" 2>/dev/null) || true
           if [[ -n "${EVENT_PAYLOAD_RAW}" ]]; then
-            COMMIT_SHA=$(printf '%s' "${EVENT_PAYLOAD_RAW}" | jq -r '.pull_request.head.sha // empty' 2>/dev/null) || true
-            if [[ -z "${COMMIT_SHA}" ]]; then
-              echo "::warning::event_payload present but pull_request.head.sha extraction failed"
+            HAS_PR=$(printf '%s' "${EVENT_PAYLOAD_RAW}" | jq -r '.pull_request // empty' 2>/dev/null) || true
+            if [[ -n "${HAS_PR}" && "${HAS_PR}" != "null" ]]; then
+              COMMIT_SHA=$(printf '%s' "${EVENT_PAYLOAD_RAW}" | jq -r '.pull_request.head.sha // empty' 2>/dev/null) || true
+              if [[ -z "${COMMIT_SHA}" ]]; then
+                echo "::warning::event_payload has pull_request but head.sha extraction failed"
+              fi
             fi
           fi
         fi
