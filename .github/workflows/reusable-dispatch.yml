@@ -177,7 +177,6 @@ jobs:
             return 1
           }
 
-          # Extract the first word of the comment as the command
           COMMAND=""
           if [[ -n "${COMMENT_BODY:-}" ]]; then
             COMMAND="$(printf '%s\n' "${COMMENT_BODY}" | head -1 | tr -d '\r' | awk '{print $1}')"
@@ -230,12 +229,11 @@ jobs:
                     STAGE="prioritize"
                   fi
                   ;;
-                /fs-stop|/fs-fix-stop) ;; # shim stop-agent job — do not route
                 *)
                   # Intentionally weaker gate: allows external reporters to
                   # re-trigger triage by providing clarification on needs-info
                   # issues. Full write-permission check is not required here.
-                  if has_label "needs-info" && ! has_label "feature" && ! has_label "fullsend-no-triage"; then
+                  if has_label "needs-info" && ! has_label "feature"; then
                     if [[ "${COMMENT_USER_TYPE}" != "Bot" ]]; then
                       if [[ "${COMMENT_AUTHOR_ASSOC}" != "NONE" ]] || is_issue_author; then
                         STAGE="triage"
@@ -248,23 +246,23 @@ jobs:
 
             issues)
               if [[ "${EVENT_ACTION}" == "opened" ]]; then
-                if is_event_actor_authorized "${ISSUE_USER_LOGIN}" triage && ! has_label "fullsend-no-triage"; then
+                if is_event_actor_authorized "${ISSUE_USER_LOGIN}" triage; then
                   STAGE="triage"
                 fi
               elif [[ "${EVENT_ACTION}" == "edited" ]]; then
-                if is_event_actor_authorized "${EVENT_SENDER_LOGIN}" triage && ! has_label "fullsend-no-triage"; then
+                if is_event_actor_authorized "${EVENT_SENDER_LOGIN}" triage; then
                   STAGE="triage"
                 fi
               elif [[ "${EVENT_ACTION}" == "labeled" ]]; then
-                if [[ "${TRIGGERING_LABEL}" == "ready-for-triage" ]] && ! has_label "fullsend-no-triage"; then
+                if [[ "${TRIGGERING_LABEL}" == "ready-for-triage" ]]; then
                   STAGE="triage"
                 elif [[ "${TRIGGERING_LABEL}" == "ready-to-code" ]]; then
                   # Mutation stage: write+ labeler, or bots (agent handoff).
-                  if { [[ "${EVENT_SENDER_LOGIN}" =~ \[bot\]$ ]] || is_event_actor_authorized "${EVENT_SENDER_LOGIN}"; } && ! has_label "fullsend-no-code"; then
+                  if [[ "${EVENT_SENDER_LOGIN}" =~ \[bot\]$ ]] || is_event_actor_authorized "${EVENT_SENDER_LOGIN}"; then
                     STAGE="code"
                   fi
                 elif [[ "${TRIGGERING_LABEL}" == "ready-for-review" ]]; then
-                  if [[ "${ISSUE_IS_PR}" == "true" ]] && ! has_label "fullsend-no-review"; then
+                  if [[ "${ISSUE_IS_PR}" == "true" ]]; then
                     STAGE="review"
                   fi
                 fi
@@ -274,22 +272,19 @@ jobs:
             pull_request_target)
               case "${EVENT_ACTION}" in
                 opened|synchronize|ready_for_review)
-                  # fullsend-no-review skips auto review; /fs-review bypasses.
-                  if { [[ "${PR_USER_LOGIN}" =~ \[bot\]$ ]] || is_event_actor_authorized "${PR_USER_LOGIN}" triage; } && ! has_label "fullsend-no-review" "${PR_LABELS}"; then
+                  if [[ "${PR_USER_LOGIN}" =~ \[bot\]$ ]] || is_event_actor_authorized "${PR_USER_LOGIN}" triage; then
                     STAGE="review"
                   fi
                   ;;
                 labeled)
-                  if [[ "${TRIGGERING_LABEL}" == "ready-for-review" ]] && ! has_label "fullsend-no-review" "${PR_LABELS}"; then
+                  if [[ "${TRIGGERING_LABEL}" == "ready-for-review" ]]; then
                     STAGE="review"
                   fi
                   ;;
                 closed)
                   # Intentional ungated: any closer may trigger read-only retro
                   # (lifecycle accounting). See ADR 0054 #5223 note.
-                  if ! has_label "fullsend-no-retro" "${PR_LABELS}"; then
-                    STAGE="retro"
-                  fi
+                  STAGE="retro"
                   ;;
               esac
               ;;
@@ -299,13 +294,17 @@ jobs:
                 REVIEW_BOT="${ORG_NAME}-review[bot]"
                 if [[ "${REVIEW_USER_LOGIN}" == "${REVIEW_BOT}" ]]; then
                   # Human PRs need fullsend-fix + write+ author (not triage-only).
-                  if [[ -n "${PR_HEAD_REPO}" && -n "${PR_BASE_REPO}" && "${PR_HEAD_REPO}" == "${PR_BASE_REPO}" ]] && ! has_label "fullsend-no-fix" "${PR_LABELS}"; then
-                    if [[ "${PR_USER_LOGIN}" =~ \[bot\]$ ]]; then
-                      STAGE="fix"
-                      TRIGGER_SOURCE="${REVIEW_USER_LOGIN}"
-                    elif has_label "fullsend-fix" "${PR_LABELS}" && has_repo_permission "${PR_USER_LOGIN}" write; then
-                      STAGE="fix"
-                      TRIGGER_SOURCE="${REVIEW_USER_LOGIN}"
+                  if [[ -n "${PR_HEAD_REPO}" && -n "${PR_BASE_REPO}" ]]; then
+                    if [[ "${PR_HEAD_REPO}" == "${PR_BASE_REPO}" ]]; then
+                      if ! has_label "fullsend-no-fix" "${PR_LABELS}"; then
+                        if [[ "${PR_USER_LOGIN}" =~ \[bot\]$ ]]; then
+                          STAGE="fix"
+                          TRIGGER_SOURCE="${REVIEW_USER_LOGIN}"
+                        elif has_label "fullsend-fix" "${PR_LABELS}" && has_repo_permission "${PR_USER_LOGIN}" write; then
+                          STAGE="fix"
+                          TRIGGER_SOURCE="${REVIEW_USER_LOGIN}"
+                        fi
+                      fi
                     fi
                   fi
                 fi
